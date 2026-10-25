@@ -273,31 +273,42 @@ func (j *Journal) findCAJournal(ctx context.Context) (*datastore.CAJournal, erro
 		return nil, fmt.Errorf("failed to get keys from key manager: %w", err)
 	}
 
+	var found *datastore.CAJournal
 	for _, k := range kmKeys {
-		subjectKeyID, err := x509util.GetSubjectKeyID(k.Public())
+		ids, err := journalAuthorityIDs(k.Public())
 		if err != nil {
-			return nil, fmt.Errorf("failed to calculate the subject key identifier for public key with ID %q", k.ID())
+			return nil, fmt.Errorf("failed to calculate authority identifiers for managed public key %q: %w", k.ID(), err)
 		}
-
-		authorityID := x509util.SubjectKeyIDToString(subjectKeyID)
-		caJournal, err := ds.FetchCAJournal(ctx, authorityID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch CA journal from datastore: %w", err)
-		}
-		if caJournal != nil {
-			// There is a CA journal record that has an active X509 authority
-			// ID that matches with one of the public keys of this server. This
-			// means that this record belongs to this server.
-			j.config.log.WithFields(logrus.Fields{
-				telemetry.CAJournalID:      caJournal.ID,
-				telemetry.LocalAuthorityID: authorityID,
-			}).Debug("Found a CA journal record that matches with a local X509 authority ID")
-
-			return caJournal, nil
+		for idIndex, authorityID := range ids {
+			candidate, err := ds.FetchCAJournal(ctx, authorityID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch CA journal from datastore: %w", err)
+			}
+			if candidate == nil {
+				continue
+			}
+			// Preserve native-ID lookup compatibility. The existing SlotLoader
+			// validates the managed slot key, expiry and status before use.
+			// Only the newly introduced RFC7093 fallback needs this additional
+			// authority-certificate/SPKI binding before journal selection.
+			if idIndex > 0 {
+				if err := verifyJournalManagedKey(candidate, authorityID, k.Public()); err != nil {
+					return nil, fmt.Errorf("CA journal public-key binding failed: %w", err)
+				}
+			}
+			if found != nil && found.ID != candidate.ID {
+				return nil, fmt.Errorf("multiple CA journals match managed public keys; explicit recovery required")
+			}
+			found = candidate
 		}
 	}
-
-	return nil, nil
+	if found != nil {
+		j.config.log.WithFields(logrus.Fields{
+			telemetry.CAJournalID:      found.ID,
+			telemetry.LocalAuthorityID: found.ActiveX509AuthorityID,
+		}).Debug("Found a CA journal record matching managed authority identifiers")
+	}
+	return found, nil
 }
 
 // save saves the CA journal in the datastore.
