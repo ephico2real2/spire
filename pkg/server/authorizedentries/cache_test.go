@@ -542,6 +542,47 @@ func TestLookupEntries(t *testing.T) {
 	require.Contains(t, found, "workload-child-7")
 }
 
+func TestRegistrationExpiryStopsIssuanceBeforePrune(t *testing.T) {
+	past := time.Now().Add(-time.Hour).Unix()
+	future := time.Now().Add(time.Hour).Unix()
+	alias := makeAlias(alias1, sel1)
+	alias.ExpiresAt = past
+	live := makeWorkload(alias1)
+	live.SpiffeId.Path = "/ns/orders/sa/api"
+	live.ExpiresAt = future
+	directID := spiffeid.RequireFromPath(td, "/ns/orders/sa/old")
+	direct := makeWorkload(agent1)
+	direct.SpiffeId = api.ProtoFromID(directID)
+	direct.ExpiresAt = past
+	child := makeWorkload(directID)
+	child.SpiffeId.Path = "/child"
+	child.ExpiresAt = future
+	open := makeWorkload(agent1)
+	open.SpiffeId.Path = "/open"
+	test := testCache().withAgent(agent1, sel1).withEntries(alias, live, direct, child, open)
+	test.assertAuthorizedEntries(t, agent1, open)
+
+	_, cache := test.hydrate(t)
+	alias.ExpiresAt = future
+	cache.UpdateEntry(alias)
+	assertAuthorizedEntries(t, cache, agent1, test.entries, open, live)
+
+	fixed := time.Unix(1_700_000_000, 0)
+	clk := clock.NewMockAt(t, fixed)
+	boundaryCache := NewCache(clk, td.String())
+	boundary := makeWorkload(agent1)
+	boundary.ExpiresAt = fixed.Unix()
+	boundaryCache.UpdateEntry(boundary)
+	if got := boundaryCache.GetAuthorizedEntries(agent1); len(got) != 0 {
+		t.Fatalf("entry at its expiry second authorized %d rows", len(got))
+	}
+	boundary.ExpiresAt = fixed.Unix() + 1
+	boundaryCache.UpdateEntry(boundary)
+	if got := boundaryCache.GetAuthorizedEntries(agent1); len(got) != 1 {
+		t.Fatalf("entry with one second of remaining lifetime returned %d rows", len(got))
+	}
+}
+
 func BenchmarkEntryLookup(b *testing.B) {
 	numEntries := 256
 	cache := setupLookupTest(b, numEntries)

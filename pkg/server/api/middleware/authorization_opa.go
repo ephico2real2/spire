@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/shirou/gopsutil/v4/process"
 	"github.com/sirupsen/logrus"
@@ -11,6 +12,7 @@ import (
 	"github.com/spiffe/spire/pkg/common/idutil"
 	"github.com/spiffe/spire/pkg/common/peertracker"
 	"github.com/spiffe/spire/pkg/common/telemetry"
+	"github.com/spiffe/spire/pkg/server/api"
 	"github.com/spiffe/spire/pkg/server/api/rpccontext"
 	"github.com/spiffe/spire/pkg/server/authpolicy"
 	"google.golang.org/grpc/codes"
@@ -127,8 +129,9 @@ func isAdminViaConfig(ctx context.Context, adminIDs map[spiffeid.ID]struct{}) (c
 }
 
 func isAdminViaEntries(ctx context.Context, entries []*types.Entry) (context.Context, bool) {
+	now := time.Now()
 	for _, entry := range entries {
-		if entry.Admin {
+		if entry.Admin && api.RegistrationCurrent(entry.ExpiresAt, now) {
 			return rpccontext.WithAdminCaller(ctx), true
 		}
 	}
@@ -136,9 +139,10 @@ func isAdminViaEntries(ctx context.Context, entries []*types.Entry) (context.Con
 }
 
 func isDownstreamViaEntries(ctx context.Context, entries []*types.Entry) (context.Context, bool) {
+	now := time.Now()
 	downstreamEntries := make([]*types.Entry, 0, len(entries))
 	for _, entry := range entries {
-		if entry.Downstream {
+		if entry.Downstream && api.RegistrationCurrent(entry.ExpiresAt, now) {
 			downstreamEntries = append(downstreamEntries, entry)
 		}
 	}

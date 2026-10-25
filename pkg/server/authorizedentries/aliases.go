@@ -16,6 +16,10 @@ type aliasRecord struct {
 	// possesses a superset of the alias's selectors and is therefore
 	// authorized for the alias.
 	AllSelectors selectorSet
+
+	// ExpiresAt is the registration entry expiry in Unix seconds. Zero means
+	// the alias has no expiry. It is not part of the btree key.
+	ExpiresAt int64
 }
 
 func aliasRecordByEntryID(a, b aliasRecord) bool {

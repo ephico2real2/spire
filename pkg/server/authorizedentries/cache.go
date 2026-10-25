@@ -78,11 +78,15 @@ func (c *Cache) LookupAuthorizedEntries(agentID spiffeid.ID, requestedEntries ma
 	parentSeen := allocStringSet()
 	defer freeStringSet(parentSeen)
 
-	c.addDescendants(foundEntries, agentID.Path(), requestedEntries, parentSeen)
+	now := c.clk.Now()
+	c.addDescendants(foundEntries, agentID.Path(), requestedEntries, parentSeen, now)
 
 	agentAliases := c.getAgentAliases(agent.Selectors)
 	for _, alias := range agentAliases {
-		c.addDescendants(foundEntries, alias.AliasID, requestedEntries, parentSeen)
+		if !api.RegistrationCurrent(alias.ExpiresAt, now) {
+			continue
+		}
+		c.addDescendants(foundEntries, alias.AliasID, requestedEntries, parentSeen, now)
 	}
 
 	return foundEntries
@@ -104,12 +108,16 @@ func (c *Cache) GetAuthorizedEntries(agentID spiffeid.ID) []api.ReadOnlyEntry {
 	parentSeen := allocStringSet()
 	defer freeStringSet(parentSeen)
 
+	now := c.clk.Now()
 	records := make([]api.ReadOnlyEntry, 0)
-	records = c.appendDescendents(records, agentID.Path(), parentSeen)
+	records = c.appendDescendents(records, agentID.Path(), parentSeen, now)
 
 	agentAliases := c.getAgentAliases(agent.Selectors)
 	for _, alias := range agentAliases {
-		records = c.appendDescendents(records, alias.AliasID, parentSeen)
+		if !api.RegistrationCurrent(alias.ExpiresAt, now) {
+			continue
+		}
+		records = c.appendDescendents(records, alias.AliasID, parentSeen, now)
 	}
 
 	return records
@@ -187,7 +195,7 @@ func (c *Cache) PruneExpiredAgents() int {
 	}
 }
 
-func (c *Cache) appendDescendents(records []api.ReadOnlyEntry, parentID string, parentSeen stringSet) []api.ReadOnlyEntry {
+func (c *Cache) appendDescendents(records []api.ReadOnlyEntry, parentID string, parentSeen stringSet, now time.Time) []api.ReadOnlyEntry {
 	if _, ok := parentSeen[parentID]; ok {
 		return records
 	}
@@ -195,13 +203,16 @@ func (c *Cache) appendDescendents(records []api.ReadOnlyEntry, parentID string, 
 
 	parentEntries := c.entriesByParentID[parentID]
 	for _, entry := range parentEntries {
+		if !api.RegistrationCurrent(entry.ExpiresAt, now) {
+			continue
+		}
 		records = append(records, api.NewReadOnlyEntry(entry))
-		records = c.appendDescendents(records, entry.SpiffeId.Path, parentSeen)
+		records = c.appendDescendents(records, entry.SpiffeId.Path, parentSeen, now)
 	}
 	return records
 }
 
-func (c *Cache) addDescendants(foundEntries map[string]api.ReadOnlyEntry, parentID string, requestedEntries map[string]struct{}, parentSeen stringSet) {
+func (c *Cache) addDescendants(foundEntries map[string]api.ReadOnlyEntry, parentID string, requestedEntries map[string]struct{}, parentSeen stringSet, now time.Time) {
 	if len(foundEntries) == len(requestedEntries) {
 		return
 	}
@@ -212,6 +223,9 @@ func (c *Cache) addDescendants(foundEntries map[string]api.ReadOnlyEntry, parent
 
 	parentEntries := c.entriesByParentID[parentID]
 	for _, entry := range parentEntries {
+		if !api.RegistrationCurrent(entry.ExpiresAt, now) {
+			continue
+		}
 		if _, ok := requestedEntries[entry.Id]; ok {
 			foundEntries[entry.Id] = api.NewReadOnlyEntry(entry)
 		}
@@ -220,7 +234,7 @@ func (c *Cache) addDescendants(foundEntries map[string]api.ReadOnlyEntry, parent
 			return
 		}
 
-		c.addDescendants(foundEntries, entry.SpiffeId.Path, requestedEntries, parentSeen)
+		c.addDescendants(foundEntries, entry.SpiffeId.Path, requestedEntries, parentSeen, now)
 	}
 }
 
@@ -256,6 +270,7 @@ func (c *Cache) updateEntry(entry *types.Entry) {
 			EntryID:      entry.Id,
 			AliasID:      entry.SpiffeId.Path,
 			AllSelectors: selectorSetFromProto(entry.Selectors),
+			ExpiresAt:    entry.ExpiresAt,
 		}
 		for selector := range ar.AllSelectors {
 			ar.Selector = selector

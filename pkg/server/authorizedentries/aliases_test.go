@@ -12,7 +12,9 @@ func TestAliasRecordSize(t *testing.T) {
 	// The motivation for this test is to bring awareness and visibility into
 	// how much size the record occupies. We want to minimize the size to
 	// increase cache locality in the btree.
-	require.Equal(t, uintptr(72), unsafe.Sizeof(aliasRecord{}))
+	// The cached registration expiry adds one int64 (8 bytes). Keep this
+	// explicit size budget so a later change cannot grow the btree unnoticed.
+	require.Equal(t, uintptr(80), unsafe.Sizeof(aliasRecord{}))
 }
 
 func TestAliasRecordByEntryID(t *testing.T) {

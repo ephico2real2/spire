@@ -98,7 +98,12 @@ func (s *Service) isCallerAuthorized(ctx context.Context, log logrus.FieldLogger
 		return nil, status.Error(codes.PermissionDenied, "no identity issued")
 	}
 
+	now := time.Now()
 	for _, entry := range entries {
+		// A stale cache must not extend a delegate grant after synchronization fails.
+		if entry.EntryExpiry != 0 && entry.EntryExpiry <= now.Unix() {
+			continue
+		}
 		if _, ok := s.authorizedDelegates[entry.SpiffeId]; ok {
 			log.WithField("delegate_id", entry.SpiffeId).Debug("Caller authorized as delegate")
 			return callerSelectors, nil

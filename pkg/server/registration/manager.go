@@ -12,6 +12,9 @@ import (
 )
 
 const (
+	// _pruningCadence is datastore cleanup. It is not the issuance boundary.
+	// Authorized-entry reads refuse a nonzero EntryExpiry at that second
+	// through api.RegistrationCurrent, including rows this loop has not deleted.
 	_pruningCadence = 5 * time.Minute
 )
 

@@ -3,6 +3,7 @@ package entrycache
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/spire-api-sdk/proto/spire/api/types"
@@ -182,7 +183,7 @@ func (c *FullEntryCache) LookupAuthorizedEntries(agentID spiffeid.ID, requestedE
 	defer freeSeenSet(seen)
 
 	foundEntries := make(map[string]api.ReadOnlyEntry)
-	c.crawl(agentID.Path(), seen, func(entry *types.Entry) bool {
+	c.crawl(agentID.Path(), seen, time.Now(), func(entry *types.Entry) bool {
 		if _, ok := requestedEntries[entry.Id]; ok {
 			foundEntries[entry.Id] = api.NewReadOnlyEntry(entry)
 		}
@@ -199,7 +200,7 @@ func (c *FullEntryCache) GetAuthorizedEntries(agentID spiffeid.ID) []api.ReadOnl
 	defer freeSeenSet(seen)
 
 	foundEntries := []api.ReadOnlyEntry{}
-	c.crawl(agentID.Path(), seen, func(entry *types.Entry) bool {
+	c.crawl(agentID.Path(), seen, time.Now(), func(entry *types.Entry) bool {
 		foundEntries = append(foundEntries, api.NewReadOnlyEntry(entry))
 		return true
 	})
@@ -210,21 +211,29 @@ func (c *FullEntryCache) GetAuthorizedEntries(agentID spiffeid.ID) []api.ReadOnl
 // Crawl the list of registration entries calling the visit function on all of them.
 // visit(entry) returns a boolean indicating if we should continue iterating (if true)
 // or if we should terminate the crawl (if false).
-func (c *FullEntryCache) crawl(parentID string, seen map[string]struct{}, visit func(*types.Entry) bool) {
+func (c *FullEntryCache) crawl(parentID string, seen map[string]struct{}, now time.Time, visit func(*types.Entry) bool) {
 	if _, ok := seen[parentID]; ok {
 		return
 	}
 	seen[parentID] = struct{}{}
 
 	for _, entry := range c.entries[parentID] {
+		// An expired entry cannot authorize itself or any descendant. The
+		// snapshot can still contain the row until the registration pruner runs.
+		if !api.RegistrationCurrent(entry.ExpiresAt, now) {
+			continue
+		}
 		if !visit(entry) {
 			return
 		}
-		c.crawl(entry.SpiffeId.Path, seen, visit)
+		c.crawl(entry.SpiffeId.Path, seen, now, visit)
 	}
 
 	for _, alias := range c.aliases[parentID] {
-		c.crawl(alias.id, seen, visit)
+		if alias.entry != nil && !api.RegistrationCurrent(alias.entry.ExpiresAt, now) {
+			continue
+		}
+		c.crawl(alias.id, seen, now, visit)
 	}
 }
 

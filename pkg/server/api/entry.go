@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/spire-api-sdk/proto/spire/api/types"
@@ -26,6 +27,15 @@ func NewReadOnlyEntry(entry *types.Entry) ReadOnlyEntry {
 	return ReadOnlyEntry{
 		entry: entry,
 	}
+}
+
+// RegistrationCurrent reports whether a registration entry may authorize a new
+// SVID at now. ExpiresAt is Unix seconds. Zero means the entry has no expiry.
+// A nonzero expiry authorizes only while it is strictly after now. The
+// registration pruner deletes expired rows on a later cadence; callers must
+// not wait for that deletion before refusing issuance.
+func RegistrationCurrent(expiresAt int64, now time.Time) bool {
+	return expiresAt == 0 || expiresAt > now.Unix()
 }
 
 func (e ReadOnlyEntry) GetId() string {
