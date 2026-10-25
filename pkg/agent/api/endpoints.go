@@ -36,33 +36,55 @@ func (e *Endpoints) ListenAndServe(ctx context.Context) error {
 		grpc.StreamInterceptor(streamInterceptor),
 	)
 
-	e.registerDebugAPI(server)
-	e.registerDelegatedIdentityAPI(server)
-	e.registerLoggerAPI(server)
+	e.registerServices(server)
 
+	name := "Admin APIs"
+	if e.c.DelegatedOnly {
+		name = "DelegatedIdentity-only API"
+	}
 	l, err := e.createListener()
 	if err != nil {
+		e.c.Log.WithError(err).WithField("api", name).Error("Unable to create listener")
 		return err
 	}
 	defer l.Close()
 	log := e.c.Log.WithFields(logrus.Fields{
 		telemetry.Network: l.Addr().Network(),
 		telemetry.Address: l.Addr().String()})
-	log.Info("Starting Admin APIs")
+	if e.c.DelegatedOnly {
+		log = log.WithField("socket_group", e.c.SocketGroup)
+	}
+	log.Info("Starting " + name)
+	if e.c.Listening != nil {
+		close(e.c.Listening)
+	}
 
 	errChan := make(chan error)
 	go func() { errChan <- server.Serve(l) }()
 
 	select {
 	case err = <-errChan:
-		log.WithError(err).Error("Admin APIs stopped prematurely")
+		log.WithError(err).Error(name + " stopped prematurely")
 		return err
 	case <-ctx.Done():
-		log.Info("Stopping Admin APIs")
+		log.Info("Stopping " + name)
 		server.Stop()
 		<-errChan
-		log.Info("Admin APIs have stopped")
+		log.Info(name + " have stopped")
 		return nil
+	}
+}
+
+// registerServices registers only DelegatedIdentity on a delegated-only
+// listener. Debug and Logger stay exclusive to the original Admin socket:
+// Logger can change the process log level without delegate authorization.
+func (e *Endpoints) registerServices(server *grpc.Server) {
+	if !e.c.DelegatedOnly {
+		e.registerDebugAPI(server)
+	}
+	e.registerDelegatedIdentityAPI(server)
+	if !e.c.DelegatedOnly {
+		e.registerLoggerAPI(server)
 	}
 }
 

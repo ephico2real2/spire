@@ -269,6 +269,12 @@ type syncRetryBackoffConfig struct {
 }
 
 type experimentalConfig struct {
+	// DelegatedIdentitySocketPath and DelegatedIdentitySocketGroup opt in to
+	// a separate Linux Unix socket that serves only the DelegatedIdentity
+	// API. Both empty/zero keep it disabled.
+	DelegatedIdentitySocketPath  string `hcl:"delegated_identity_socket_path"`
+	DelegatedIdentitySocketGroup int    `hcl:"delegated_identity_socket_group"`
+
 	SyncInterval              string `hcl:"sync_interval"`
 	JWTSVIDCacheHitTimeout    string `hcl:"jwt_svid_cache_hit_timeout"`
 	RPCTimeout                string `hcl:"rpc_timeout"`
@@ -1014,6 +1020,10 @@ func newAgentConfig(c *Config, logOptions []log.Option, allowUnknownConfig, skip
 	}
 	if ac.WorkloadAPIRateLimit.FetchSecrets < 0 {
 		return nil, errors.New("experimental.ratelimit.fetch_secrets must not be negative")
+	}
+
+	if err := configureDelegatedIdentity(c.Agent, ac); err != nil {
+		return nil, err
 	}
 
 	if cmp.Diff(experimentalConfig{}, c.Agent.Experimental) != "" {

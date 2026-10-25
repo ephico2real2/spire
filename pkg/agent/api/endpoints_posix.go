@@ -11,6 +11,9 @@ import (
 )
 
 func (e *Endpoints) createListener() (net.Listener, error) {
+	if e.c.DelegatedOnly {
+		return e.createDelegatedListener()
+	}
 	// Remove uds if already exists
 	os.Remove(e.c.BindAddr.String())
 

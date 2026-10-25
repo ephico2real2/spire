@@ -16,6 +16,16 @@ import (
 type Config struct {
 	BindAddr net.Addr
 
+	// DelegatedOnly serves only the DelegatedIdentity API on a separate,
+	// opt-in Unix socket (no Debug or Logger services). SocketGroup is the
+	// group that may connect to it; the parent directory supplies that group
+	// through its set-group-ID bit, so the agent needs no extra group or
+	// capability. Linux only.
+	DelegatedOnly bool
+	SocketGroup   int
+	// Listening is closed once the listener is ready, when non-nil.
+	Listening chan struct{}
+
 	Manager manager.Manager
 
 	Log logrus.FieldLogger

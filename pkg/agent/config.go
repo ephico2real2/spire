@@ -43,6 +43,11 @@ type Config struct {
 	// Directory to bind the admin api to
 	AdminBindAddress net.Addr
 
+	// Optional Linux DelegatedIdentity-only Unix socket (nil: disabled) and
+	// the group allowed to connect to it.
+	DelegatedIdentityBindAddress net.Addr
+	DelegatedIdentitySocketGroup int
+
 	// The Validation Context resource name to use when fetching X.509 bundle together with federated bundles with Envoy SDS
 	DefaultAllBundlesName string
 

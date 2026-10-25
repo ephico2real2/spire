@@ -336,6 +336,26 @@ func (a *Agent) Run(ctx context.Context) error {
 		tasks = append(tasks, adminEndpoints.ListenAndServe)
 	}
 
+	if a.c.DelegatedIdentityBindAddress != nil {
+		listening := make(chan struct{})
+		apiReadyChannels = append(apiReadyChannels, listening)
+		delegated := admin_api.New(&admin_api.Config{
+			BindAddr:            a.c.DelegatedIdentityBindAddress,
+			DelegatedOnly:       true,
+			SocketGroup:         a.c.DelegatedIdentitySocketGroup,
+			Listening:           listening,
+			Manager:             mgr,
+			Log:                 a.c.Log,
+			RootLog:             a.c.Log,
+			Metrics:             metrics,
+			TrustDomain:         a.c.TrustDomain,
+			Uptime:              uptime.Uptime,
+			Attestor:            workloadAttestor,
+			AuthorizedDelegates: a.c.AuthorizedDelegates,
+		})
+		tasks = append(tasks, delegated.ListenAndServe)
+	}
+
 	if len(a.c.Broker.BindAddresses) != 0 {
 		brokerEndpoints, err := broker.New(&broker.Config{
 			BindAddrs:    a.c.Broker.BindAddresses,
